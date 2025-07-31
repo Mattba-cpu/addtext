@@ -1,18 +1,19 @@
 {
-  "name": "commande-superspostion-rudy",
+  "name": "addtexttoimage",
   "version": "1.0.0",
-  "main": "node.js",
+  "description": "Générateur d'images avec texte",
+  "main": "main.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node main.js",
+    "dev": "node main.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "@supabase/supabase-js": "^2.50.3",
-    "dotenv": "^16.6.1",
-    "sharp": "^0.34.2",
+    "@supabase/supabase-js": "^2.39.0",
+    "dotenv": "^16.3.1",
+    "sharp": "^0.32.6",
     "text-to-svg": "^3.1.5"
   },
-  "description": ""
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
