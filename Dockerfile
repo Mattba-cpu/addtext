@@ -1,8 +1,16 @@
-# Dockerfile simplifié pour debug
+# Dockerfile avec Sharp optimisé
 FROM node:18-alpine
 
-# Ajout de curl pour health check seulement
-RUN apk add --no-cache curl
+# Installation des dépendances système pour Sharp (ordre important)
+RUN apk add --no-cache \
+    curl \
+    vips-dev \
+    build-base \
+    python3 \
+    make \
+    g++ \
+    libc6-compat \
+    pkgconfig
 
 # Répertoire de travail
 WORKDIR /app
@@ -10,8 +18,9 @@ WORKDIR /app
 # Copie des fichiers de dépendances
 COPY package*.json ./
 
-# Installation SANS Sharp pour le moment
-RUN npm ci --only=production --no-audit --ignore-scripts
+# Installation avec compilation forcée de Sharp
+RUN npm ci --only=production --no-audit && \
+    npm rebuild sharp --verbose
 
 # Copie du code source
 COPY . .
