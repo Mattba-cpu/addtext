@@ -1,19 +1,34 @@
 {
-  "name": "addtexttoimage",
+  "name": "text-to-image-api",
   "version": "1.0.0",
-  "description": "Générateur d'images avec texte",
-  "main": "main.js",
+  "description": "API service pour générer des images avec du texte - Compatible n8n et Coolify",
+  "main": "index.js",
   "scripts": {
-    "start": "node main.js",
-    "dev": "node main.js"
+    "start": "node index.js",
+    "dev": "node index.js",
+    "health": "curl -f http://localhost:3000/health || exit 1"
   },
+  "keywords": [
+    "text-to-image",
+    "api",
+    "n8n",
+    "coolify",
+    "sharp",
+    "supabase"
+  ],
+  "author": "",
+  "license": "MIT",
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.0",
-    "dotenv": "^16.3.1",
     "sharp": "^0.32.6",
-    "text-to-svg": "^3.1.5"
+    "text-to-svg": "^3.1.5",
+    "@supabase/supabase-js": "^2.38.0",
+    "dotenv": "^16.3.1"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": ""
   }
 }
