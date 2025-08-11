@@ -2,6 +2,7 @@ const fs = require('fs');
 const http = require('http');
 const { URL } = require('url');
 const sharp = require('sharp');
+
 // Configuration Sharp pour éviter les crashes
 sharp.cache(false);
 sharp.concurrency(1);
@@ -14,27 +15,52 @@ require('dotenv').config();
 const inputImagePath = 'template.png';
 const MAX_TEXT_LENGTH = 300;
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
 
-// Supabase setup avec vérification
+console.log(`🚀 Démarrage du service API...`);
+console.log(`📋 Configuration: PORT=${PORT}, HOST=${HOST}, ENV=${process.env.NODE_ENV || 'development'}`);
+
+// Supabase setup
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-  console.error('❌ Variables SUPABASE_URL et SUPABASE_KEY requises');
+  console.error('❌ Variables d\'environnement manquantes:');
+  console.error(`   - SUPABASE_URL: ${supabaseUrl ? '✅' : '❌'}`);
+  console.error(`   - SUPABASE_KEY: ${supabaseKey ? '✅' : '❌'}`);
   process.exit(1);
 }
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+let supabase;
+try {
+  supabase = createClient(supabaseUrl, supabaseKey);
+  console.log('✅ Client Supabase initialisé');
+} catch (error) {
+  console.error('❌ Erreur Supabase:', error.message);
+  process.exit(1);
+}
 
-// Police
+// Chargement police
 let textToSVG;
 try {
-  textToSVG = TextToSVG.loadSync('./Montserrat-Bold.ttf');
-  console.log('✅ Police Montserrat chargée');
-} catch (e) {
-  console.warn('⚠️ Police système utilisée (Montserrat introuvable)');
+  if (fs.existsSync('./Montserrat-Bold.ttf')) {
+    textToSVG = TextToSVG.loadSync('./Montserrat-Bold.ttf');
+    console.log('✅ Police Montserrat-Bold.ttf chargée');
+  } else {
+    textToSVG = TextToSVG.loadSync();
+    console.log('✅ Police système chargée');
+  }
+} catch (error) {
   textToSVG = TextToSVG.loadSync();
+  console.log('⚠️ Police système utilisée par défaut');
 }
+
+// Vérification template
+if (!fs.existsSync(inputImagePath)) {
+  console.error(`❌ Template introuvable: ${inputImagePath}`);
+  process.exit(1);
+}
+console.log('✅ Template vérifié');
 
 // Utilitaires
 function escapeHtml(str) {
@@ -53,7 +79,14 @@ function wrapText(text, maxWidth, fontSize) {
 
   for (const word of words) {
     const testLine = (currentLine + word + ' ').trim();
-    const { width } = textToSVG.getMetrics(testLine, { fontSize });
+    let width;
+    
+    try {
+      const metrics = textToSVG.getMetrics(testLine, { fontSize });
+      width = metrics.width;
+    } catch (error) {
+      width = testLine.length * fontSize * 0.6;
+    }
     
     if (width > maxWidth && currentLine !== '') {
       lines.push(currentLine.trim());
@@ -62,7 +95,11 @@ function wrapText(text, maxWidth, fontSize) {
       currentLine = testLine + ' ';
     }
   }
-  lines.push(currentLine.trim());
+  
+  if (currentLine.trim()) {
+    lines.push(currentLine.trim());
+  }
+  
   return lines;
 }
 
@@ -88,6 +125,7 @@ function generateSVG({ width, height, box, lines, fontSize }) {
         font-family: 'Montserrat', sans-serif;
         font-size: ${fontSize}px;
         fill: #000000;
+        font-weight: bold;
       }
     </style>
     ${svgLines}
@@ -96,22 +134,17 @@ function generateSVG({ width, height, box, lines, fontSize }) {
 
 // Fonction principale
 async function generateAndUpload(texte) {
-  console.log(`🔄 Début génération pour: "${texte?.slice(0, 30)}..."`);
+  const startTime = Date.now();
+  console.log(`🔄 Génération: "${texte?.slice(0, 50)}..." (${texte?.length}/${MAX_TEXT_LENGTH} chars)`);
   
   if (!texte || !texte.trim()) {
-    throw new Error('Aucun texte fourni.');
+    throw new Error('Aucun texte fourni');
   }
   if (texte.length > MAX_TEXT_LENGTH) {
-    throw new Error(`Texte trop long (max ${MAX_TEXT_LENGTH} caractères).`);
-  }
-  
-  console.log(`📁 Vérification fichier: ${inputImagePath}`);
-  if (!fs.existsSync(inputImagePath)) {
-    throw new Error(`Template introuvable : ${inputImagePath}`);
+    throw new Error(`Texte trop long: ${texte.length}/${MAX_TEXT_LENGTH} caractères`);
   }
 
-  // Traitement de l'image avec gestion d'erreur
-  console.log(`🖼️ Chargement image...`);
+  // Traitement image
   let baseImage;
   let width, height;
   
@@ -120,69 +153,82 @@ async function generateAndUpload(texte) {
     const metadata = await baseImage.metadata();
     width = metadata.width;
     height = metadata.height;
-    console.log(`✅ Image chargée: ${width}x${height}`);
+    console.log(`✅ Image: ${width}x${height}px`);
   } catch (error) {
-    console.error(`❌ Erreur Sharp:`, error);
-    throw new Error(`Erreur traitement image: ${error.message}`);
+    throw new Error(`Erreur image: ${error.message}`);
   }
 
   // Zone de texte
   const box = {
-    x: width * 0.18,
-    y: height * 0.56,
-    width: width * 0.63,
-    height: height * 0.23,
+    x: Math.round(width * 0.18),
+    y: Math.round(height * 0.56),
+    width: Math.round(width * 0.63),
+    height: Math.round(height * 0.23),
   };
-
+  
   const fontSize = Math.round(box.height * 0.18);
-  console.log(`📝 Génération texte, fontSize: ${fontSize}`);
   const lines = wrapText(texte, box.width * 0.9, fontSize);
 
-  // Création du SVG
-  console.log(`🎨 Création SVG...`);
-  const svgBuffer = Buffer.from(
-    generateSVG({ width, height, box, lines, fontSize }),
-    'utf-8'
-  );
+  // SVG
+  const svgContent = generateSVG({ width, height, box, lines, fontSize });
+  const svgBuffer = Buffer.from(svgContent, 'utf-8');
 
-  // Composition de l'image finale
-  console.log(`🔧 Composition image...`);
+  // Composition
   let finalBuffer;
   try {
     finalBuffer = await baseImage
-      .composite([{ input: svgBuffer, top: 0, left: 0 }])
-      .png()
+      .composite([{ 
+        input: svgBuffer, 
+        top: 0, 
+        left: 0,
+        blend: 'over'
+      }])
+      .png({ quality: 90, compressionLevel: 6 })
       .toBuffer();
-    console.log(`✅ Image composée, taille: ${finalBuffer.length} bytes`);
+    
+    console.log(`✅ Image composée: ${Math.round(finalBuffer.length / 1024)}KB`);
   } catch (error) {
-    console.error(`❌ Erreur composition:`, error);
     throw new Error(`Erreur composition: ${error.message}`);
   }
 
-  // Upload vers Supabase
+  // Upload Supabase avec retry
   const timestamp = Date.now();
-  const safeText = texte.slice(0, 30).replace(/[^a-z0-9]/gi, '_').toLowerCase();
+  const safeText = texte
+    .slice(0, 30)
+    .replace(/[^a-z0-9\s]/gi, '')
+    .replace(/\s+/g, '_')
+    .toLowerCase();
   const fileName = `citation_${safeText}_${timestamp}.png`;
 
-  console.log(`📤 Upload Supabase: ${fileName}`);
-  
   let uploadResult;
-  try {
-    uploadResult = await supabase.storage
-      .from('citation')
-      .upload(fileName, finalBuffer, {
-        contentType: 'image/png',
-        cacheControl: '3600'
-      });
+  const maxRetries = 3;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      uploadResult = await supabase.storage
+        .from('citation')
+        .upload(fileName, finalBuffer, {
+          contentType: 'image/png',
+          cacheControl: '3600',
+          upsert: false
+        });
+        
+      if (uploadResult.error) {
+        throw new Error(uploadResult.error.message);
+      }
       
-    if (uploadResult.error) {
-      console.error('❌ Erreur upload Supabase:', uploadResult.error);
-      throw new Error(`Upload failed: ${uploadResult.error.message}`);
+      console.log(`✅ Upload réussi (tentative ${attempt})`);
+      break;
+      
+    } catch (error) {
+      console.error(`❌ Tentative ${attempt}/${maxRetries}:`, error.message);
+      
+      if (attempt >= maxRetries) {
+        throw new Error(`Upload échoué après ${maxRetries} tentatives: ${error.message}`);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
     }
-    console.log(`✅ Upload réussi`);
-  } catch (error) {
-    console.error(`❌ Erreur Supabase:`, error);
-    throw new Error(`Supabase error: ${error.message}`);
   }
 
   // URL publique
@@ -190,131 +236,230 @@ async function generateAndUpload(texte) {
     .from('citation')
     .getPublicUrl(fileName);
 
-  return { fileName, publicUrl };
+  const totalTime = Date.now() - startTime;
+  console.log(`✅ Terminé en ${totalTime}ms - ${fileName}`);
+
+  return { 
+    fileName, 
+    publicUrl, 
+    processingTime: totalTime,
+    fileSize: Math.round(finalBuffer.length / 1024),
+    textLength: texte.length
+  };
 }
 
-// Serveur HTTP pour Coolify
+// Gestion arrêt gracieux
+process.on('SIGTERM', () => {
+  console.log('🛑 SIGTERM - Arrêt gracieux...');
+  server.close(() => process.exit(0));
+});
+
+process.on('SIGINT', () => {
+  console.log('🛑 SIGINT - Arrêt gracieux...');
+  server.close(() => process.exit(0));
+});
+
+// Serveur HTTP pour API
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+  const startTime = Date.now();
+  
+  // Headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Content-Type', 'application/json');
   
   try {
-    // Health check pour Coolify
-    if (req.method === 'GET' && url.pathname === '/health') {
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
-      return res.end('OK');
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    
+    // CORS preflight
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200);
+      return res.end();
     }
 
-    // Page d'accueil
-    if (req.method === 'GET' && url.pathname === '/') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      return res.end(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Text to Image Generator</title>
-          <meta charset="utf-8">
-          <style>
-            body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
-            .form-group { margin: 20px 0; }
-            textarea { width: 100%; height: 100px; padding: 10px; }
-            button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
-            button:hover { background: #0056b3; }
-            .result { margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px; }
-            .error { background: #f8d7da; color: #721c24; }
-            .success { background: #d4edda; color: #155724; }
-          </style>
-        </head>
-        <body>
-          <h1>🖼️ Générateur d'Image avec Texte</h1>
-          <form id="textForm">
-            <div class="form-group">
-              <label for="text">Votre texte (max ${MAX_TEXT_LENGTH} caractères):</label>
-              <textarea id="text" name="text" placeholder="Entrez votre texte ici..." maxlength="${MAX_TEXT_LENGTH}"></textarea>
-            </div>
-            <button type="submit">Générer l'image</button>
-          </form>
-          <div id="result"></div>
-
-          <script>
-            document.getElementById('textForm').addEventListener('submit', async (e) => {
-              e.preventDefault();
-              const text = document.getElementById('text').value;
-              const resultDiv = document.getElementById('result');
-              
-              if (!text.trim()) {
-                resultDiv.innerHTML = '<div class="result error">Veuillez entrer un texte.</div>';
-                return;
-              }
-
-              resultDiv.innerHTML = '<div class="result">⏳ Génération en cours...</div>';
-
-              try {
-                const response = await fetch('/generate', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ text })
-                });
-
-                const data = await response.json();
-
-                if (data.ok) {
-                  resultDiv.innerHTML = \`
-                    <div class="result success">
-                      <h3>✅ Image générée avec succès!</h3>
-                      <p><strong>Nom:</strong> \${data.fileName}</p>
-                      <p><a href="\${data.publicUrl}" target="_blank">🔗 Voir l'image</a></p>
-                      <img src="\${data.publicUrl}" alt="Image générée" style="max-width: 100%; margin-top: 10px;">
-                    </div>
-                  \`;
-                } else {
-                  resultDiv.innerHTML = \`<div class="result error">❌ Erreur: \${data.error}</div>\`;
-                }
-              } catch (error) {
-                resultDiv.innerHTML = \`<div class="result error">❌ Erreur réseau: \${error.message}</div>\`;
-              }
-            });
-          </script>
-        </body>
-        </html>
-      `);
+    // Health check (ESSENTIEL pour Coolify)
+    if (req.method === 'GET' && (url.pathname === '/health' || url.pathname === '/healthz')) {
+      const health = {
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        uptime: Math.round(process.uptime()),
+        memory: {
+          used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+          total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024)
+        },
+        pid: process.pid
+      };
+      
+      res.writeHead(200);
+      return res.end(JSON.stringify(health, null, 2));
     }
 
-    // API endpoint pour générer l'image
-    if (req.method === 'POST' && url.pathname === '/generate') {
-      let body = '';
-      req.on('data', chunk => body += chunk);
-      req.on('end', async () => {
-        try {
-          const { text } = JSON.parse(body || '{}');
-          console.log(`🔄 Génération pour: "${text?.slice(0, 50)}..."`);
-          
-          const result = await generateAndUpload(text);
-          console.log(`✅ Succès: ${result.fileName}`);
-          
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: true, ...result }));
-        } catch (error) {
-          console.error('❌ Erreur:', error.message);
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: false, error: error.message }));
-        }
-      });
+    // Readiness check
+    if (req.method === 'GET' && url.pathname === '/ready') {
+      try {
+        // Vérifications critiques
+        if (!fs.existsSync(inputImagePath)) throw new Error('Template manquant');
+        if (!textToSVG) throw new Error('Police non chargée');
+        if (!supabase) throw new Error('Supabase non initialisé');
+        
+        res.writeHead(200);
+        res.end(JSON.stringify({ status: 'ready', timestamp: new Date().toISOString() }));
+      } catch (error) {
+        res.writeHead(503);
+        res.end(JSON.stringify({ status: 'not ready', error: error.message }));
+      }
       return;
     }
 
+    // API Info - Documentation basique pour n8n
+    if (req.method === 'GET' && url.pathname === '/') {
+      const apiDoc = {
+        service: 'Text to Image Generator API',
+        version: '1.0.0',
+        endpoints: {
+          'POST /generate': {
+            description: 'Génère une image avec du texte',
+            body: {
+              text: 'string (requis, max 300 caractères)'
+            },
+            response: {
+              ok: 'boolean',
+              fileName: 'string',
+              publicUrl: 'string',
+              processingTime: 'number (ms)',
+              fileSize: 'number (KB)',
+              textLength: 'number'
+            }
+          },
+          'GET /health': 'Health check pour monitoring',
+          'GET /ready': 'Readiness check'
+        },
+        limits: {
+          maxTextLength: MAX_TEXT_LENGTH,
+          imageFormat: 'PNG',
+          storage: 'Supabase'
+        }
+      };
+      
+      res.writeHead(200);
+      return res.end(JSON.stringify(apiDoc, null, 2));
+    }
+
+    // API principale pour n8n
+    if (req.method === 'POST' && url.pathname === '/generate') {
+      let body = '';
+      
+      req.on('data', chunk => {
+        body += chunk;
+        if (body.length > 10000) { // Limite sécurité
+          res.writeHead(413);
+          res.end(JSON.stringify({ ok: false, error: 'Payload trop volumineux' }));
+          return;
+        }
+      });
+      
+      req.on('end', async () => {
+        try {
+          const { text } = JSON.parse(body || '{}');
+          
+          if (!text || typeof text !== 'string') {
+            res.writeHead(400);
+            return res.end(JSON.stringify({ 
+              ok: false, 
+              error: 'Paramètre "text" requis (string)',
+              received: typeof text
+            }));
+          }
+          
+          const result = await generateAndUpload(text);
+          
+          res.writeHead(200);
+          res.end(JSON.stringify({ 
+            ok: true, 
+            ...result,
+            timestamp: new Date().toISOString()
+          }));
+          
+        } catch (error) {
+          console.error('❌ Erreur génération:', error.message);
+          const statusCode = error.message.includes('trop long') ? 400 : 500;
+          
+          res.writeHead(statusCode);
+          res.end(JSON.stringify({ 
+            ok: false, 
+            error: error.message,
+            timestamp: new Date().toISOString()
+          }));
+        }
+      });
+      
+      return;
+    }
+
+    // Métriques pour monitoring
+    if (req.method === 'GET' && url.pathname === '/metrics') {
+      const metrics = {
+        uptime: Math.round(process.uptime()),
+        memory: process.memoryUsage(),
+        cpu: process.cpuUsage(),
+        platform: process.platform,
+        nodeVersion: process.version,
+        pid: process.pid
+      };
+      
+      res.writeHead(200);
+      return res.end(JSON.stringify(metrics, null, 2));
+    }
+
     // 404
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: false, error: 'Not found' }));
+    res.writeHead(404);
+    res.end(JSON.stringify({ 
+      ok: false, 
+      error: 'Endpoint non trouvé',
+      availableEndpoints: ['GET /', 'POST /generate', 'GET /health', 'GET /ready', 'GET /metrics']
+    }));
 
   } catch (error) {
     console.error('❌ Erreur serveur:', error);
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: false, error: 'Internal Server Error' }));
+    
+    if (!res.headersSent) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ 
+        ok: false, 
+        error: 'Erreur interne du serveur'
+      }));
+    }
   }
 });
 
-// Démarrage du serveur
-server.listen(PORT, () => {
-  console.log(`✅ Serveur démarré sur le port ${PORT}`);
-  console.log(`🌐 Health check: http://localhost:${PORT}/health`);
+// Gestion erreurs serveur
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} déjà utilisé`);
+    process.exit(1);
+  }
+  console.error('❌ Erreur serveur:', error);
 });
+
+// Démarrage
+server.listen(PORT, HOST, () => {
+  console.log(`\n✅ === SERVICE API DÉMARRÉ ===`);
+  console.log(`🌐 Adresse: http://${HOST}:${PORT}`);
+  console.log(`🏥 Health: http://${HOST}:${PORT}/health`);
+  console.log(`📡 API: POST http://${HOST}:${PORT}/generate`);
+  console.log(`🆔 PID: ${process.pid}`);
+  console.log(`===============================\n`);
+});
+
+// Monitoring mémoire en production
+if (process.env.NODE_ENV === 'production') {
+  setInterval(() => {
+    const mem = process.memoryUsage();
+    const used = Math.round(mem.heapUsed / 1024 / 1024);
+    const total = Math.round(mem.heapTotal / 1024 / 1024);
+    if (used > 100) { // Log si > 100MB
+      console.log(`💾 Mémoire: ${used}MB/${total}MB`);
+    }
+  }, 300000); // 5 minutes
+}
