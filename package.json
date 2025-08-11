@@ -1,23 +1,10 @@
 {
   "name": "text-to-image-api",
   "version": "1.0.0",
-  "description": "API service pour générer des images avec du texte - Compatible n8n et Coolify",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "node index.js",
-    "health": "curl -f http://localhost:3000/health || exit 1"
+    "start": "node index.js"
   },
-  "keywords": [
-    "text-to-image",
-    "api",
-    "n8n",
-    "coolify",
-    "sharp",
-    "supabase"
-  ],
-  "author": "",
-  "license": "MIT",
   "dependencies": {
     "sharp": "0.32.6",
     "text-to-svg": "3.1.5",
