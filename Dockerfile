@@ -1,16 +1,14 @@
-# Dockerfile avec Sharp optimisé
-FROM node:18-alpine
+# Dockerfile Ubuntu - Plus compatible avec Sharp
+FROM node:18-slim
 
-# Installation des dépendances système pour Sharp (ordre important)
-RUN apk add --no-cache \
+# Installation des dépendances système
+RUN apt-get update && apt-get install -y \
     curl \
-    vips-dev \
-    build-base \
+    libvips-dev \
     python3 \
     make \
     g++ \
-    libc6-compat \
-    pkgconfig
+    && rm -rf /var/lib/apt/lists/*
 
 # Répertoire de travail
 WORKDIR /app
@@ -18,16 +16,16 @@ WORKDIR /app
 # Copie des fichiers de dépendances
 COPY package*.json ./
 
-# Installation avec compilation forcée de Sharp
-RUN npm ci --only=production --no-audit && \
+# Installation avec npm install (pas ci)
+RUN npm install --only=production --no-audit && \
     npm rebuild sharp --verbose
 
 # Copie du code source
 COPY . .
 
 # Création utilisateur non-root
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
+RUN groupadd -g 1001 nodejs && \
+    useradd -r -u 1001 -g nodejs nodejs
 
 # Attribution des permissions
 RUN chown -R nodejs:nodejs /app
@@ -36,8 +34,8 @@ USER nodejs
 # Exposition du port
 EXPOSE 3000
 
-# Health check simple
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:3000/health || exit 1
 
 # Commande de démarrage
