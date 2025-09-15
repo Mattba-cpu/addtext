@@ -103,10 +103,17 @@ function wrapText(text, maxWidth, fontSize) {
 
 function generateSVG({ width, height, box, lines, fontSize }) {
   if (!TextToSVG) throw new Error('TextToSVG non disponible');
-  
-  const lineHeight = fontSize * 1.4;
-  const verticalShift = -20;
-  const startY = box.y + box.height / 2 + verticalShift - ((lines.length - 1) * lineHeight) / 2;
+
+  // Espacement interlignes "propre" (évite la sensation de décentrage vertical)
+  const lineHeight = Math.round(fontSize * 1.3);
+
+  // Hauteur totale du bloc de texte (toutes les lignes)
+  const totalTextHeight = lines.length * lineHeight;
+
+  // Point de départ parfaitement centré dans la box (sans décalage arbitraire)
+  const startY = Math.round(
+    box.y + (box.height - totalTextHeight) / 2 + lineHeight / 2
+  );
 
   const svgLines = lines
     .map((line, i) => {
@@ -124,7 +131,7 @@ function generateSVG({ width, height, box, lines, fontSize }) {
       text {
         font-family: 'Montserrat', sans-serif;
         font-size: ${fontSize}px;
-        fill: #000000;
+        fill: #DF864E;
         font-weight: bold;
       }
     </style>
