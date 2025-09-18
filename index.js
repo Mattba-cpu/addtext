@@ -175,13 +175,33 @@ async function generateAndUpload(texte) {
     throw new Error(`Erreur image: ${error.message}`);
   }
 
-  // Zone de texte
-  const box = {
-    x: Math.round(width * 0.18),
-    y: Math.round(height * 0.40),
-    width: Math.round(width * 0.63),
-    height: Math.round(height * 0.35),
-  };
+// Emplacement du texte
+function getAdaptiveBox(width, height, textLength) {
+  if (textLength < 30) {
+    return {
+      x: Math.round(width * 0.18),
+      y: Math.round(height * 0.45),
+      width: Math.round(width * 0.63),
+      height: Math.round(height * 0.15),
+    };
+  } else if (textLength < 100) {
+    return {
+      x: Math.round(width * 0.18),
+      y: Math.round(height * 0.40),
+      width: Math.round(width * 0.63),
+      height: Math.round(height * 0.25),
+    };
+  } else {
+    return {
+      x: Math.round(width * 0.15),
+      y: Math.round(height * 0.30),
+      width: Math.round(width * 0.70),
+      height: Math.round(height * 0.40),
+    };
+  }
+}
+
+const box = getAdaptiveBox(width, height, texte.length);
   
   const fontSize = Math.round(box.height * 0.18);
   const lines = wrapText(texte, box.width * 0.9, fontSize);
