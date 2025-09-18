@@ -178,9 +178,9 @@ async function generateAndUpload(texte) {
   // Zone de texte
   const box = {
     x: Math.round(width * 0.18),
-    y: Math.round(height * 0.56),
+    y: Math.round(height * 0.40),
     width: Math.round(width * 0.63),
-    height: Math.round(height * 0.23),
+    height: Math.round(height * 0.35),
   };
   
   const fontSize = Math.round(box.height * 0.18);
